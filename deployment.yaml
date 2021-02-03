@@ -1,0 +1,90 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: net-worker
+---
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: monitor-azfiles
+  namespace: net-worker
+provisioner: kubernetes.io/azure-file
+mountOptions:
+  - dir_mode=0777
+  - file_mode=0777
+  - uid=0
+  - gid=0
+  - mfsymlinks
+  - cache=strict
+  - actimeo=30
+parameters:
+  skuName: Standard_LRS
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: monitor-azfiles
+  namespace: net-worker
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: monitor-azfiles
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: net-worker
+  labels:
+    app: net-worker
+  name: net-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: net-worker
+  template:
+    metadata:
+      labels:
+        app: net-worker
+    spec:
+      shareProcessNamespace: true
+      containers:
+        - image: rahulrai/sidecar-monitor:latest
+          imagePullPolicy: Always
+          name: toolbox
+          stdin: true
+          tty: true
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+        - image: rahulrai/sidecar-monitor-app:latest
+          imagePullPolicy: Always
+          name: app
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: monitor-azfiles
